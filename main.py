@@ -1,5 +1,6 @@
 import os
 import shutil
+import argparse
 import numpy as np
 import Levenshtein
 from collections import Counter
@@ -10,6 +11,7 @@ from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 from sklearn.cluster import AgglomerativeClustering
 from sklearn.metrics.pairwise import cosine_similarity
+from functools import lru_cache
 
 class FileMover:
     def __init__(self, source_dir: str, dest_dir: str, max_distance: float = 0.6):
@@ -61,7 +63,7 @@ class FileMover:
                     dest_path = os.path.join(dest_folder, file_name)
 
                     # Error check for non-existent file
-                    if not os.path.exists(source_path):
+                    if not os.path.exists(source_path)):
                         print(f"File {source_path} does not exist!")
                         continue
 
@@ -123,7 +125,7 @@ class FileMover:
             return {}, []
 
         # Load a pre-trained model to generate embeddings
-        model = SentenceTransformer('all-MiniLM-L6-v2')  # Using a smaller, faster model for embeddings
+        model = self._load_embedding_model()
 
         # Generate embeddings for each file name
         embeddings = model.encode(files)
@@ -146,6 +148,11 @@ class FileMover:
 
         return cluster_groups, labels
 
+    @lru_cache(maxsize=None)
+    def _load_embedding_model(self):
+        return SentenceTransformer('all-MiniLM-L6-v2')
+
+    @lru_cache(maxsize=1024)
     def extract_substring(self, filename: str) -> str:
         length = len(filename)
         substring_length = length // 2  # Half the length of the filename
@@ -243,30 +250,19 @@ class FileMover:
 
 
 if __name__ == '__main__':
-    current_directory = os.path.dirname(os.path.abspath(__file__))
+    parser = argparse.ArgumentParser(description="Move files from source to destination based on clustering or tree structure.")
+    parser.add_argument('source_dir', type=str, help="Source directory where files are located.")
+    parser.add_argument('dest_dir', type=str, help="Destination directory where files will be moved.")
+    parser.add_argument('--method', type=str, choices=['clustering', 'tree'], default='clustering', help="Method to organize files: 'clustering' or 'tree'.")
+    parser.add_argument('--use_embeddings', action='store_true', help="Use embeddings for clustering instead of Levenshtein distance.")
+    
+    args = parser.parse_args()
 
-    source_directory = input("Enter the source directory (press Enter for current directory): ")
-    if not source_directory.strip():
-        source_directory = current_directory
+    file_mover = FileMover(args.source_dir, args.dest_dir)
 
-    destination_directory = input("Enter the destination directory (press Enter for current directory): ")
-    if not destination_directory.strip():
-        destination_directory = current_directory
-
-    method_choice = input("Choose a method (1 for clustering, 2 for tree-based): ")
-    if method_choice not in ['1', '2']:
-        print("Invalid choice. Exiting.")
-        exit()
-
-    input(f"\nPress Enter to continue. destination_directory: {destination_directory}, source_directory: {source_directory}")
-
-    file_mover = FileMover(source_directory, destination_directory)
-
-    if method_choice == '1':
-        use_embeddings = input("Use embeddings for clustering? (yes/no): ").lower() == 'yes'
-        file_mover.move_files(use_embeddings=use_embeddings)
-    elif method_choice == '2':
+    if args.method == 'clustering':
+        file_mover.move_files(use_embeddings=args.use_embeddings)
+    elif args.method == 'tree':
         file_mover.move_files_tree_based()
 
-    print(f"Files moved to {destination_directory}.")
-    input("\nPress Enter to exit...")
+    print(f"Files moved to {args.dest_dir}.")
